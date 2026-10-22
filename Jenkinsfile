@@ -1,0 +1,539 @@
+pipeline {
+agent any
+
+parameters {
+    choice(
+        name: 'terraform_action',
+        choices: ['apply', 'destroy'],
+        description: 'Choose the Terraform action to perform'
+    )
+}
+
+environment {
+    AWS_DEFAULT_REGION = 'us-east-2'
+    AWS_ACCESS_KEY_ID = credentials('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
+
+    TERRAFORM_ROOT = 'terraform/03-EKS-project'
+}
+
+stages {
+
+    // ============================================================
+    // CHECKOUT
+    // ============================================================
+
+    stage('Checkout') {
+        steps {
+            dir('terraform') {
+                git(
+                    url: 'https://github.com/ManojKRISHNAPPA/adavnced-devops-course.git',
+                    branch: 'terraform'
+                )
+            }
+        }
+    }
+
+
+    // ============================================================
+    // APPLY - BOOTSTRAP
+    // ============================================================
+
+    stage('01 - Bootstrap Plan') {
+        when {
+            expression {
+                params.terraform_action == 'apply'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/01-Bootstrap") {
+                sh '''
+                    set -e
+
+                    terraform init --input=false
+
+                    terraform import aws_s3_bucket.tf_state shab-terraform-backup || true
+
+                    terraform plan \
+                        --input=false \
+                        -out=tfplan
+
+                    terraform show \
+                        -no-color \
+                        tfplan > tfplan.txt
+
+                    cat tfplan.txt
+                '''
+            }
+        }
+    }
+
+    stage('Approval - 01 Bootstrap') {
+        when {
+            expression {
+                params.terraform_action == 'apply'
+            }
+        }
+
+        steps {
+            script {
+                def plan = readFile(
+                    file: "${env.TERRAFORM_ROOT}/01-Bootstrap/tfplan.txt"
+                )
+
+                input(
+                    message: """
+
+${plan}
+
+""",
+ok: 'Approve Bootstrap'
+)
+}
+}
+}
+
+    stage('01 - Bootstrap Apply') {
+        when {
+            expression {
+                params.terraform_action == 'apply'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/01-Bootstrap") {
+                sh '''
+                    set -e
+
+                    terraform apply \
+                        --input=false \
+                        tfplan
+                '''
+            }
+        }
+    }
+
+
+    // ============================================================
+    // APPLY - NETWORKING
+    // ============================================================
+
+    stage('02 - Networking Plan') {
+        when {
+            expression {
+                params.terraform_action == 'apply'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/02-Networking") {
+                sh '''
+                    set -e
+
+                    terraform init --input=false
+
+
+                    terraform plan \
+                        --input=false \
+                        -out=tfplan
+
+                    terraform show \
+                        -no-color \
+                        tfplan > tfplan.txt
+
+                    cat tfplan.txt
+                '''
+            }
+        }
+    }
+
+    stage('Approval - 02 Networking') {
+        when {
+            expression {
+                params.terraform_action == 'apply'
+            }
+        }
+
+        steps {
+            script {
+                def plan = readFile(
+                    file: "${env.TERRAFORM_ROOT}/02-Networking/tfplan.txt"
+                )
+
+                input(
+                    message: """
+
+${plan}
+
+""",
+ok: 'Approve Networking'
+)
+}
+}
+}
+
+    stage('02 - Networking Apply') {
+        when {
+            expression {
+                params.terraform_action == 'apply'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/02-Networking") {
+                sh '''
+                    set -e
+
+                    terraform apply \
+                        --input=false \
+                        tfplan
+                '''
+            }
+        }
+    }
+
+
+    // ============================================================
+    // APPLY - EKS
+    // ============================================================
+
+    stage('03 - EKS Plan') {
+        when {
+            expression {
+                params.terraform_action == 'apply'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/03-EKS") {
+                sh '''
+                    set -e
+
+                    terraform init --input=false
+
+
+
+                    terraform plan \
+                        --input=false \
+                        -out=tfplan
+
+                    terraform show \
+                        -no-color \
+                        tfplan > tfplan.txt
+
+                    cat tfplan.txt
+                '''
+            }
+        }
+    }
+
+    stage('Approval - 03 EKS') {
+        when {
+            expression {
+                params.terraform_action == 'apply'
+            }
+        }
+
+        steps {
+            script {
+                def plan = readFile(
+                    file: "${env.TERRAFORM_ROOT}/03-EKS/tfplan.txt"
+                )
+
+                input(
+                    message: """
+
+${plan}
+
+""",
+ok: 'Approve EKS'
+)
+}
+}
+}
+
+    stage('03 - EKS Apply') {
+        when {
+            expression {
+                params.terraform_action == 'apply'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/03-EKS") {
+                sh '''
+                    set -e
+
+                    terraform apply \
+                        --input=false \
+                        tfplan
+                '''
+            }
+        }
+    }
+
+
+    // ============================================================
+    // DESTROY - EKS
+    // ============================================================
+
+    stage('Destroy - EKS Plan') {
+        when {
+            expression {
+                params.terraform_action == 'destroy'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/03-EKS") {
+                sh '''
+                    set -e
+
+                    terraform init --input=false
+
+                    terraform plan \
+                        --destroy \
+                        --input=false \
+                        -out=destroy.tfplan
+
+                    terraform show \
+                        -no-color \
+                        destroy.tfplan > destroy-plan.txt
+
+                    cat destroy-plan.txt
+                '''
+            }
+        }
+    }
+
+    stage('Approval - Destroy EKS') {
+        when {
+            expression {
+                params.terraform_action == 'destroy'
+            }
+        }
+
+        steps {
+            script {
+                def plan = readFile(
+                    file: "${env.TERRAFORM_ROOT}/03-EKS/destroy-plan.txt"
+                )
+
+                input(
+                    message: """
+
+${plan}
+
+""",
+ok: 'Approve EKS Destroy'
+)
+}
+}
+}
+
+    stage('Destroy - EKS') {
+        when {
+            expression {
+                params.terraform_action == 'destroy'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/03-EKS") {
+                sh '''
+                    set -e
+
+                    terraform apply \
+                        --input=false \
+                        destroy.tfplan
+                '''
+            }
+        }
+    }
+
+
+    // ============================================================
+    // DESTROY - NETWORKING
+    // ============================================================
+
+    stage('Destroy - Networking Plan') {
+        when {
+            expression {
+                params.terraform_action == 'destroy'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/02-Networking") {
+                sh '''
+                    set -e
+
+                    terraform init --input=false
+
+                    terraform plan \
+                        --destroy \
+                        --input=false \
+                        -out=destroy.tfplan
+
+                    terraform show \
+                        -no-color \
+                        destroy.tfplan > destroy-plan.txt
+
+                    cat destroy-plan.txt
+                '''
+            }
+        }
+    }
+
+    stage('Approval - Destroy Networking') {
+        when {
+            expression {
+                params.terraform_action == 'destroy'
+            }
+        }
+
+        steps {
+            script {
+                def plan = readFile(
+                    file: "${env.TERRAFORM_ROOT}/02-Networking/destroy-plan.txt"
+                )
+
+                input(
+                    message: """
+
+${plan}
+
+""",
+ok: 'Approve Networking Destroy'
+)
+}
+}
+}
+
+    stage('Destroy - Networking') {
+        when {
+            expression {
+                params.terraform_action == 'destroy'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/02-Networking") {
+                sh '''
+                    set -e
+
+                    terraform apply \
+                        --input=false \
+                        destroy.tfplan
+                '''
+            }
+        }
+    }
+
+
+    // ============================================================
+    // DESTROY - BOOTSTRAP
+    // ============================================================
+
+    stage('Destroy - Bootstrap Plan') {
+        when {
+            expression {
+                params.terraform_action == 'destroy'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/01-Bootstrap") {
+                sh '''
+                    set -e
+
+                    terraform init --input=false
+
+                    terraform plan \
+                        --destroy \
+                        --input=false \
+                        -out=destroy.tfplan
+
+                    terraform show \
+                        -no-color \
+                        destroy.tfplan > destroy-plan.txt
+
+                    cat destroy-plan.txt
+                '''
+            }
+        }
+    }
+
+    stage('Approval - Destroy Bootstrap') {
+        when {
+            expression {
+                params.terraform_action == 'destroy'
+            }
+        }
+
+        steps {
+            script {
+                def plan = readFile(
+                    file: "${env.TERRAFORM_ROOT}/01-Bootstrap/destroy-plan.txt"
+                )
+
+                input(
+                    message: """
+
+${plan}
+
+""",
+ok: 'Approve Bootstrap Destroy'
+)
+}
+}
+}
+
+    stage('Destroy - Bootstrap') {
+        when {
+            expression {
+                params.terraform_action == 'destroy'
+            }
+        }
+
+        steps {
+            dir("${env.TERRAFORM_ROOT}/01-Bootstrap") {
+                sh '''
+                    set -e
+
+                    terraform apply \
+                        --input=false \
+                        destroy.tfplan
+                '''
+            }
+        }
+    }
+}
+
+
+// ============================================================
+// POST
+// ============================================================
+
+post {
+    always {
+        echo '========================================='
+        echo 'Terraform Pipeline Completed'
+        echo '========================================='
+    }
+
+    success {
+        echo 'Terraform pipeline completed successfully.'
+    }
+
+    failure {
+        echo 'Terraform pipeline failed.'
+    }
+
+    aborted {
+        echo 'Terraform pipeline was aborted by user.'
+    }
+}
+
+}
